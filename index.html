@@ -219,6 +219,24 @@
   .skin .equip { background: transparent; border: 1px solid var(--edge); color: var(--text); }
   .skin .equipped { background: transparent; border: 0; color: var(--green); cursor: default; }
 
+  /* ---------- redeem codes (in the shop) ---------- */
+  .redeem {
+    display: grid; gap: 6px; text-align: left;
+    padding: 10px; border: 1px dashed var(--edge); border-radius: 14px;
+  }
+  .redeem-row { display: flex; gap: 8px; }
+  .redeem-row .field { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .08em; }
+  .redeem-row button {
+    flex: none; min-height: 44px; padding: 0 16px;
+    border: 0; border-radius: 999px; background: var(--gold); color: #2b2008;
+    font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  .redeem-row button:active { transform: scale(.97); }
+  .code-msg { margin: 0; font-size: 13px; }
+  .code-msg:empty { display: none; }
+  .code-msg.ok { color: var(--gold); font-weight: 700; }
+  .code-msg.error { color: var(--red); }
+
   /* ---------- app updates (only shown inside the Android app) ---------- */
   .field-label { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
   .field {
@@ -454,6 +472,31 @@
     buzz(20);
   }
 
+  // ---------- redeem codes: code -> coins. Each code works once per device. ----------
+  // To add a code, add a line like  "SUMMER": 500,  (codes are not case sensitive)
+  const CODES = {
+    "2026": 1000,
+  };
+  let redeemed;
+  try { redeemed = new Set(JSON.parse(store.get("pocketSnakeCodes") || "[]")); } catch { redeemed = new Set(); }
+  let codeMsg = { text: "", cls: "" };
+
+  function redeemCode(raw) {
+    const code = String(raw || "").trim().toUpperCase();
+    if (!code) return { text: "Type a code first.", cls: "error" };
+    const reward = CODES[code];
+    if (!reward) return { text: "That code doesn't exist.", cls: "error" };
+    if (redeemed.has(code)) return { text: "You already used that code.", cls: "error" };
+    redeemed.add(code);
+    store.set("pocketSnakeCodes", JSON.stringify([...redeemed]));
+    coins += reward;
+    saveWallet();
+    updateHud();
+    bumpCoins();
+    buzz(30);
+    return { text: `Code redeemed: +${reward} coins!`, cls: "ok" };
+  }
+
   function equipSkin(id) {
     if (!owned.has(id)) return;
     skin = skinById(id);
@@ -662,7 +705,7 @@
     else if (act === "resume") togglePause();
     else if (act === "again") playAgain();
     else if (act === "menu") toMenu();
-    else if (act === "shop") { shopOpen = true; showOverlay(); }
+    else if (act === "shop") { shopOpen = true; codeMsg = { text: "", cls: "" }; showOverlay(); }
     else if (act === "back") { shopOpen = false; updatesOpen = false; showOverlay(); }
     else if (act === "updates") { updatesOpen = true; showOverlay(); }
     else if (act === "upd-save" && app) {
@@ -679,6 +722,21 @@
       if (panel) { panel.scrollTop = scroll; panel.style.animation = "none"; }
       overlay.querySelector(`[data-card="${id}"] button`)?.focus({ preventScroll: true });
     }
+  });
+
+  overlay.addEventListener("submit", (e) => {
+    if (e.target.id !== "redeemForm") return;
+    e.preventDefault();
+    const input = document.getElementById("codeInput");
+    codeMsg = redeemCode(input.value);
+    // Redraw the shop (new coins may unlock colors) without jumping the scroll
+    const scroll = overlay.querySelector(".shop")?.scrollTop || 0;
+    showOverlay();
+    const panel = overlay.querySelector(".shop");
+    if (panel) { panel.scrollTop = scroll; panel.style.animation = "none"; }
+    const again = document.getElementById("codeInput");
+    if (codeMsg.cls === "error") { again.value = input.value; again.focus({ preventScroll: true }); }
+    else again.blur();
   });
 
   document.addEventListener("visibilitychange", () => {
@@ -719,6 +777,15 @@
             <div class="skin-name">${s.name}</div>${btn}</div>`;
       }).join("");
       html = `<div class="shop-head"><h2>Shop</h2><span class="balance">${coin}${coins}</span></div>
+        <form class="redeem" id="redeemForm" autocomplete="off">
+          <label class="field-label" for="codeInput">Have a code?</label>
+          <div class="redeem-row">
+            <input class="field" id="codeInput" name="code" maxlength="24" placeholder="Enter code"
+              autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done">
+            <button type="submit">Redeem</button>
+          </div>
+          <p class="code-msg ${codeMsg.cls}" id="codeMsg" role="status">${esc(codeMsg.text)}</p>
+        </form>
         <div class="skins">${cards}</div>
         <p>Earn 1 coin for every apple you eat.</p>
         <button class="go" data-act="back" type="button">Back</button>`;
